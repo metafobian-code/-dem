@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Restart_sequence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0b0c;--fg:#dcd8cc;--dim:#666a6e;--acc:#8affc1;--red:#ff4d5e;--fire:#ff9a3c;--link:#7fb6ff}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--fg);font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;overflow:hidden;-webkit-tap-highlight-color:transparent}
+#stage{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;padding:10vh 7vw;font-size:clamp(15px,2.5vw,25px);line-height:1.65;font-weight:300;cursor:pointer;user-select:none}
+#screen{max-width:900px;width:100%;margin:0 auto;transition:opacity 1.4s}
+#screen.center{text-align:center}
+#hud{position:fixed;top:18px;left:7vw;right:7vw;display:flex;justify-content:space-between;font-size:11px;color:var(--dim);letter-spacing:.1em;text-transform:lowercase}
+#hud b{color:var(--acc);font-weight:400;opacity:.8}
+.line{white-space:pre-wrap;min-height:1.65em}
+.sys{color:var(--dim);font-size:.68em;letter-spacing:.05em}
+.red{color:var(--red)}
+.link{color:var(--link);text-decoration:underline;text-underline-offset:4px;transition:color 1.4s}
+.dead{color:var(--dim);text-decoration:line-through}
+.cursor{display:inline-block;width:.58em;height:1.05em;background:var(--fg);vertical-align:-.15em;margin-left:2px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.glitch{animation:gl .3s steps(2) 4}
+@keyframes gl{0%{text-shadow:2px 0 var(--red),-2px 0 var(--acc);transform:translateX(0)}50%{text-shadow:-3px 0 var(--red),3px 0 var(--acc);transform:translateX(3px)}100%{text-shadow:none;transform:none}}
+.flicker{animation:fl 1.3s linear infinite}
+@keyframes fl{0%,100%{opacity:1}6%{opacity:.15}8%{opacity:1}38%{opacity:.55}40%{opacity:1}74%{opacity:.05}77%{opacity:1}}
+.ch{display:inline-block;white-space:pre;transition:transform 2.4s cubic-bezier(.2,.6,.3,1),opacity 2.4s,filter 2.4s,color .4s,text-shadow .4s}
+.mid{font-size:min(2.1em,7vw);font-weight:700;line-height:1.2}
+.big{font-weight:700}
+.huge{font-size:min(36vw,9em);font-weight:700;line-height:1;letter-spacing:-.04em}
+.shake{animation:sh .07s linear 14}
+@keyframes sh{0%{transform:translate(0)}25%{transform:translate(-5px,2px)}50%{transform:translate(4px,-3px)}75%{transform:translate(-2px,-2px)}}
+#bar{height:3px;background:#1d2023;margin:1.4em auto 0;max-width:380px;overflow:hidden}
+#bar i{display:block;height:100%;width:0;background:var(--acc)}
+#flash{position:fixed;inset:0;background:var(--fg);opacity:0;pointer-events:none;transition:opacity .6s}
+.scan{position:fixed;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(255,255,255,.03) 0 1px,transparent 1px 3px)}
+.vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,.75))}
+#ctl{position:fixed;bottom:18px;left:0;right:0;display:flex;justify-content:center;gap:8px;font-size:11px;letter-spacing:.1em}
+#ctl button{font:inherit;color:var(--dim);background:rgba(10,11,12,.8);border:1px solid #26292c;padding:7px 14px;border-radius:3px;cursor:pointer;text-transform:lowercase}
+#ctl button:hover{color:var(--fg);border-color:var(--dim)}
+#paused{position:fixed;top:50%;left:0;right:0;text-align:center;font-size:11px;color:var(--dim);letter-spacing:.3em;opacity:0;transition:opacity .3s;pointer-events:none;transform:translateY(-50%)}
+body.is-paused #paused{opacity:1}
+body.is-paused #screen{opacity:.25}
+</style>
+</head>
+<body>
+<div id="hud"><span>usuario: <b id="who">anon_01</b></span><span id="clock">02:00:00</span></div>
+<div id="stage"><div id="screen"></div></div>
+<div id="paused">[ en pausa ]</div>
+<div class="scan"></div><div class="vig"></div><div id="flash"></div>
+<div id="ctl"><button id="pp">pausa</button><button id="rs">restart_sequence</button></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const screen = $('#screen'), stage = $('#stage'), who = $('#who'), clock = $('#clock');
+const IDS = ['anon_01','guest','user_404','nadie','root?','otra_vez','anon_02','sin_correa'];
+let paused = false, runId = 0, attempt = 0, secs = 0;
+
+const cur = document.createElement('span'); cur.className = 'cursor';
+
+function sleep(ms){
+  const id = runId;
+  return new Promise((res, rej) => {
+    let left = ms, last = performance.now();
+    (function tick(){
+      if (id !== runId) return rej('stop');
+      const t = performance.now();
+      if (!paused) left -= t - last;
+      last = t;
+      left <= 0 ? res() : setTimeout(tick, 16);
+    })();
+  });
+}
+
+function clear(){ screen.innerHTML = ''; }
+function line(cls=''){ const d = document.createElement('div'); d.className = 'line ' + cls; screen.appendChild(d); return d; }
+
+async function type(el, text, {cls='', speed=42} = {}){
+  const s = document.createElement('span'); if (cls) s.className = cls;
+  el.appendChild(s); el.appendChild(cur);
+  for (const c of text){
+    s.textContent += c;
+    let d = speed * (0.6 + Math.random()*0.8);
+    if (c === ' ') d = speed * 1.3;
+    if (',.:'.includes(c)) d = speed * 5;
+    await sleep(d);
+  }
+  return s;
+}
+
+async function scramble(s, final, dur=900, set='0123456789abcdef#@%&'){
+  const steps = Math.max(1, Math.round(dur/45));
+  for (let i = 0; i <= steps; i++){
+    const k = Math.floor(final.length * i / steps);
+    let out = final.slice(0, k);
+    for (let j = k; j < final.length; j++) out += final[j] === ' ' ? ' ' : set[Math.random()*set.length|0];
+    s.textContent = out;
+    await sleep(45);
+  }
+  s.textContent = final;
+}
+
+function split(s){
+  const t = s.textContent; s.textContent = '';
+  return [...t].map(c => { const e = document.createElement('span'); e.className = 'ch'; e.textContent = c; s.appendChild(e); return e; });
+}
+
+async function dissolve(s){
+  const cs = split(s);
+  await sleep(350);
+  cs.forEach((e,i) => setTimeout(() => {
+    e.style.transform = `translate(${(Math.random()-.5)*90}px,${-20-Math.random()*100}px) rotate(${(Math.random()-.5)*100}deg)`;
+    e.style.opacity = 0; e.style.filter = 'blur(3px)';
+  }, i*40));
+  await sleep(cs.length*40 + 2200);
+}
+
+function burn(s){
+  const cs = split(s);
+  cs.forEach((e,i) => {
+    const d = i*55 + Math.random()*200;
+    setTimeout(() => { e.style.color = 'var(--fire)'; e.style.textShadow = '0 0 10px #ff5a00, 0 -4px 14px #ff9a3c'; }, d);
+    setTimeout(() => { e.style.transform = `translateY(${-10-Math.random()*25}px)`; e.style.opacity = .12; e.style.color = 'var(--dim)'; e.style.textShadow = 'none'; }, d + 700);
+  });
+}
+
+async function erase(lines, speed=14){
+  for (let i = lines.length - 1; i >= 0; i--){
+    const el = lines[i]; el.appendChild(cur);
+    const spans = [...el.children].filter(n => n !== cur);
+    for (let k = spans.length - 1; k >= 0; k--){
+      const s = spans[k];
+      const chs = s.querySelectorAll('.ch');
+      if (chs.length){ for (let j = chs.length-1; j >= 0; j--){ chs[j].remove(); await sleep(speed); } }
+      else while (s.textContent.length){ s.textContent = s.textContent.slice(0,-1); await sleep(speed); }
+      s.remove();
+    }
+    await sleep(120);
+    el.remove();
+  }
+}
+
+function flash(){ const f = $('#flash'); f.style.opacity = .85; setTimeout(() => f.style.opacity = 0, 90); }
+function shake(){ stage.classList.remove('shake'); void stage.offsetWidth; stage.classList.add('shake'); }
+
+async function poem(){
+  let l;
+  screen.style.opacity = 1; screen.classList.remove('center'); clear();
+
+  // I
+  l = line('sys'); await type(l, `[02:00:00] conexión establecida · intento ${String(attempt).padStart(2,'0')}`, {speed:16});
+  await sleep(800);
+  l = line(); await type(l, '2 a.m., hora del módem sin correa.'); await sleep(700);
+  l = line(); await type(l, 'Sigo en la consola'); await sleep(300);
+  l = line(); await type(l, 'desde que me dio acceso.'); await sleep(2400);
+
+  // II
+  clear();
+  l = line(); const bug = await type(l, 'Un bug me alerta:', {cls:'red'}); bug.classList.add('glitch'); await sleep(1000);
+  l = line(); await type(l, 'esto es puro estímulo discriminativo sutil.'); await sleep(800);
+  l = line(); await type(l, 'Aquí no se usan '); const met = await type(l, 'metáforas'); await type(l, '.');
+  await sleep(500); met.classList.add('flicker'); await sleep(2800);
+
+  // III
+  clear();
+  l = line(); await type(l, 'Y yo, '); const ck = await type(l, 'checksum roto'); await type(l, ',');
+  await sleep(300); await scramble(ck, 'checksum roto', 1300); ck.classList.add('glitch'); await sleep(700);
+  l = line(); await type(l, 'confundo el '); const pr = await type(l, 'préstamo'); await type(l, ' con la '); const po = await type(l, 'propiedad'); await type(l, '.');
+  await sleep(1000);
+  await Promise.all([scramble(pr, 'propiedad', 900), scramble(po, 'préstamo', 900)]); await sleep(1500);
+  await Promise.all([scramble(pr, 'préstamo', 700), scramble(po, 'propiedad', 700)]); await sleep(2000);
+
+  // IV
+  clear();
+  l = line(); await type(l, 'Le pedí que iniciáramos de nuevo el juego.'); await sleep(800);
+  l = line(); await type(l, 'Espero el código de regreso,'); await sleep(2000);
+  l = line(); await type(l, 'la esperanza de que otra vez');
+  l = line(); await type(l, 'el '); const dl = await type(l, 'deadlink', {cls:'link'}); await type(l, ' me atrape.');
+  await sleep(1400); dl.classList.add('dead'); await sleep(2400);
+
+  // V
+  clear(); screen.classList.add('center');
+  l = line('mid'); await type(l, '["restart_sequence"]', {speed:34});
+  const bar = document.createElement('div'); bar.id = 'bar'; bar.innerHTML = '<i></i>'; screen.appendChild(bar);
+  const fill = bar.firstChild; let p = 0;
+  while (p < 100){ p = Math.min(100, p + Math.random()*14); fill.style.width = p + '%'; await sleep(70 + Math.random()*160); }
+  shake(); flash(); await sleep(1300);
+  screen.classList.remove('center');
+
+  // VI
+  clear();
+  const l1 = line(); await type(l1, 'Todavía recuerdo el XSS '); const fire = await type(l1, 'incendiando la caja,'); burn(fire); await sleep(900);
+  const l2 = line(); const vpn = await type(l2, 'la VPN extraviada,'); vpn.style.transition = 'opacity 2.5s'; vpn.style.opacity = .2; await sleep(700);
+  const l3 = line(); await type(l3, 'la amenaza de quien sabe borrar');
+  const l4 = line(); await type(l4, 'cualquier indicio de existencia');
+  const l5 = line(); await type(l5, 'para siempre.', {speed:80});
+  await sleep(1800);
+  await erase([l1,l2,l3,l4,l5], 12);
+  await sleep(1400);
+
+  // VII
+  clear();
+  l = line(); const tk = await type(l, 'Todos los tokens se diluyen.'); cur.remove(); await dissolve(tk);
+  l = line(); await type(l, 'Me pide que le diga el framework de mi vida.'); await sleep(1100);
+  l = line(); await type(l, 'Digo '); await sleep(700); const php = await type(l, 'PHP', {cls:'big', speed:160}); await type(l, '.');
+  php.classList.add('glitch'); await sleep(2000);
+
+  // VIII
+  clear(); screen.classList.add('center');
+  l = line(); await type(l, 'Otro'); await sleep(500);
+  l = line('huge'); const e404 = await type(l, '404', {speed:220}); cur.remove(); e404.classList.add('glitch'); shake();
+  await sleep(1100);
+  l = line(); await type(l, 'decidiendo ser verbo.'); await sleep(1200);
+  e404.classList.remove('glitch'); e404.classList.add('flicker'); await sleep(2600);
+  screen.classList.remove('center');
+
+  // IX
+  clear();
+  l = line(); await type(l, 'Tomo otra identidad.'); await sleep(400);
+  await scramble(who, IDS[attempt % IDS.length], 1200, 'abcdefghijklmnopqrstuvwxyz_0123456789'); await sleep(600);
+  l = line(); await type(l, 'Lo intento de nuevo.'); await sleep(2600);
+  screen.style.opacity = 0; await sleep(1700);
+}
+
+async function run(){
+  const my = ++runId;
+  try {
+    while (my === runId){
+      attempt++;
+      if (attempt === 1) who.textContent = IDS[0];
+      await poem();
+    }
+  } catch(e){ if (e !== 'stop') console.error(e); }
+}
+
+function togglePause(){ paused = !paused; document.body.classList.toggle('is-paused', paused); $('#pp').textContent = paused ? 'seguir' : 'pausa'; }
+stage.addEventListener('click', togglePause);
+$('#pp').addEventListener('click', e => { e.stopPropagation(); togglePause(); });
+$('#rs').addEventListener('click', e => {
+  e.stopPropagation();
+  if (paused) togglePause();
+  attempt = 0; secs = 0; who.textContent = IDS[0];
+  flash(); shake(); run();
+});
+
+setInterval(() => {
+  if (paused) return;
+  secs++;
+  const m = Math.floor(secs/60) % 60, s = secs % 60, h = 2 + Math.floor(secs/3600);
+  clock.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}, 1000);
+
+setTimeout(run, 600);
+</script>
+</body>
+</html>
